@@ -53,4 +53,4 @@ def get_indexes (stocks_exchange):
     for stocks in stocks_exchange:
         df_index_description = pd.concat([df_index_description
                                         , get_stock_indexes(stocks)])
-    return df_index_description
+    return df_index_description[0].tolist()
