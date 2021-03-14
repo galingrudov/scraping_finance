@@ -2,6 +2,7 @@ import requests
 import  pandas as pd
 import datetime as dt
 import time
+from tqdm.auto import tqdm
 
 class yahoo_data:
     def __init__(self):
@@ -58,13 +59,40 @@ class yahoo_data:
         dic_data['symbol_type'] = main_data_dic['meta']['instrumentType']
         dic_data['currency'] = main_data_dic['meta']['currency']
         return dic_data
+    
+    def __convert_modules_to_url(self, symbol, modules_list):
+        modules_app =''
+        for mod in modules_list:
+            modules_app+= mod + self.modules_concatenation_string
+        url = self.base_finance_url.format(symbol)+modules_app
+        return url
+    
+    def __extract_url_fundamental_data(self, symbol, modules_list):
+       url = self.__convert_modules_to_url(symbol, modules_list)
+       
+       responce = requests.get(url)
+       if responce.status_code != 200:
+           self.failed_url_reqests.append(symbol)
+           return pd.DataFrame()
+       json_page = responce.json()
+       return(json_page['quoteSummary']['result'][0])
+       
+   
+    def update_ratio(symbol, df_csv, data, ratio_name_csv, ratio_name_data):
+        if ratio_name_data in data.keys() and len(data[ratio_name_data]) != 0:
+            df_csv.at[ratio_name_csv] = data[ratio_name_data]['raw']
+        else:
+            df_csv.at[ratio_name_csv] = None
+    
     # Valid intervals: [1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo]
     # Valid Ranges:["1d","5d","1mo","3mo","6mo","1y","2y","5y","10y","ytd","max"]
     def extract_history_data (self, symbols, period_begin=0, period_end= 9999999999,interval = '1d', range=None):
         return_df = pd.DataFrame({'Data':[]})
         rows_list = []
-        for symbol in symbols:
+        for symbol in tqdm(symbols):
             data_history = self.__extract_url_history_data(symbol, period_begin, period_end, interval , range)
+            if data_history.values() == 0:
+                continue
             df = self.__extract_history_data(symbol, data_history)
             return_df = return_df.merge(df, 'outer')
             
@@ -72,5 +100,39 @@ class yahoo_data:
             rows_list.append(meta_row)
         meta_df = pd.DataFrame(rows_list)
         return return_df , meta_df
+    
+    def extract_fundamental_data(self, symbol, list_modules= ['financialData', 'defaultKeyStatistics', 'assetProfile']):
+        financial_modules = ['incomeStatementHistory', 'incomeStatementHistoryQuarterly'
+                        , 'balanceSheetHistory', 'balanceSheetHistoryQuarterly', 'cashflowStatementHistory'
+                        , 'cashflowStatementHistoryQuarterly']
+        data = self.__extract_url_fundamental_data(symbol, list_modules)
+        #data = json_page['quoteSummary']['result'][0]
+        df = pd.DataFrame()
+        for module in data.keys():
+            if module in financial_modules:
+                for key, value  in data[module].items():
+                    if key == 'maxAge':
+                        continue
+                    data_ = value[0]
+            else:
+                data_ = data[module]
+            for fund_key in data_.keys():
+                if isinstance(data_[fund_key], dict):
+                    if 'raw' in data_[fund_key]:
+                        df.loc[symbol, fund_key] = data_[fund_key]['raw']
+                elif isinstance(data_[fund_key], str):
+                    df.loc[symbol, fund_key] = data_[fund_key]
+        df.index.name = 'key'
+        return (df)
+    
+    def extract_sybols_fundamental_data(self, symbols, list_modules= ['financialData', 'defaultKeyStatistics', 'assetProfile']):
+        df_ret = pd.DataFrame()
+        df_ret.index.name = 'key' 
+        for symbol in tqdm(symbols):
+            df = self.extract_fundamental_data(symbol, list_modules)
+            df_ret = pd.concat([df_ret,df])
+            print (df)
+        print(df_ret)
+
 
 
